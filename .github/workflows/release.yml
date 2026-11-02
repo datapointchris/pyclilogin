@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Two pushes to main inside one run's window would otherwise race. Both runs
+# resolve the same version, and the later one fails pushing its tag or its
+# version commit.
+# Never cancel-in-progress: a canceled release can leave a tag with no release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  # Without this, release publishes whatever is on main, tested or not.
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  cross-platform:
+    uses: ./.github/workflows/cross-platform.yml
+
+  release:
+    needs: [validate, cross-platform]
+    uses: datapointchris/reusable-workflows/.github/workflows/python-semantic-release.yml@v1
+    permissions:
+      contents: write
+
+  # A separate job, in the same workflow, gated on the one above.
+  #
+  # Same workflow because a tag pushed with GITHUB_TOKEN does not trigger
+  # another workflow run -- so a publish keyed on `release: published` or
+  # `push: tags` would simply never fire. Separate job because publishing needs
+  # `id-token: write` for OIDC, and the release job must not have it. Not in
+  # the shared workflow, because a Trusted Publisher names this file and cannot
+  # name a reusable workflow.
+  publish:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-26.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyclilogin
+    permissions:
+      # Trusted Publishing. No API token is stored in this repository; PyPI is
+      # configured to accept a short-lived OIDC credential from this workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The tag, not the branch. The version is read from the tag, so a
+          # build anywhere else names the previous release plus a distance, and
+          # main may already have moved past what was released.
+          ref: ${{ needs.release.outputs.tag }}
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - run: uv build
+
+      # A version cannot be replaced once uploaded, only yanked, so the sdist
+      # and wheel are checked before anything is irreversible.
+      - run: uv run --no-project --with twine twine check dist/*
+
+      - name: Publish to PyPI
+        run: uv publish

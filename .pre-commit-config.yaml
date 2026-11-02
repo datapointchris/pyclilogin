@@ -1,0 +1,260 @@
+# forge-toolchain: 56
+fail_fast: true
+default_stages: [pre-commit]
+repos:
+
+# generated:conventional-commits - Conventional commits
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.3.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [--strict]
+
+# generated:file-checks - File format and basic checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # --unsafe parses instead of safe_load'ing. Every mkdocs-material repo
+      # carries `!!python/name:material.extensions.emoji.twemoji`, which
+      # safe_load can never construct — five repos fail this hook without it.
+      # The alternative is excluding mkdocs.yml, which checks strictly less.
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      # tsconfig.json is JSONC — TypeScript documents comments in it, and the
+      # generated one ships with them, so a strict JSON parser is the wrong
+      # tool rather than the file being wrong. check-json5 below still parses
+      # it, so nothing is unchecked.
+      - id: check-json
+        exclude: '(^|/)tsconfig(\..*)?\.json$'
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-case-conflict
+      - id: detect-private-key
+
+  - repo: https://gitlab.com/bmares/check-json5
+    rev: v1.0.0
+    hooks:
+      - id: check-json5
+
+# generated:markdown - Markdown
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.47.0
+    hooks:
+      - id: markdownlint
+        args: [--fix]
+
+# generated:shell - Shell
+  #
+  # exclude_types: [zsh] on both tools. Neither supports zsh, and neither says
+  # so — shellcheck lints a .zshrc as bash and reports nothing, while shfmt
+  # reformats it under bash rules, rewriting `>&2 }` to `>&2; }` — correct for
+  # bash and unnecessary in zsh. Both were silently out of contract, which is
+  # worse than either erroring. identify already tags these files zsh,
+  # so this is the native exclusion rather than a path regex that would have to
+  # enumerate .zshrc, .zprofile, .zlogin and the rest.
+  #
+  # shellcheck-py installs shellcheck's own release binary through pip and
+  # checks its sha256, so the hook needs no Docker daemon and no system
+  # package. Its tag is the shellcheck release it wraps, plus a packaging digit.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        exclude_types: [zsh]
+
+  # shfmt has no pre-commit hooks file of its own, so this is the repo shfmt's
+  # README points at. Its `shfmt` id runs the prebuilt upstream binary, which
+  # keeps the hook off a Go toolchain; `shfmt-src` is the one that needs Go.
+  #
+  # No formatting args on purpose. A parser or printer flag does not merge with
+  # .editorconfig — it discards the file wholesale, so adding `--indent 2` here
+  # would silently drop switch_case_indent and binary_next_line along with it.
+  # Output flags (--write, --diff) are safe. .editorconfig is the style.
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.13.1-1
+    hooks:
+      - id: shfmt
+        exclude_types: [zsh]
+
+  # bats ships no hook repo of its own, so this one is local.
+  #
+  # The guard distinguishes "this repo has no tests" from "this repo has tests
+  # and bats is missing". Only the first is allowed to pass: a bare `bats
+  # tests/` under language: system would be the second hook here to report
+  # success because its tool was absent. The first hid seven shellcheck
+  # findings behind a green run.
+  #
+  # The unset clears every variable git reads to find a repository. A commit
+  # from a linked worktree exports GIT_DIR and GIT_INDEX_FILE into each hook,
+  # and GIT_DIR outranks `git -C`, so a test running `git config` in its own
+  # scratch repo writes into the repository being committed instead.
+  #
+  # The suite runs one job per online core. Most of a bats test's cost is the
+  # framework re-sourcing its file and loading the helper libraries for every
+  # test, which no change to the tests removes, so wall time falls roughly by
+  # the core count. --jobs needs GNU parallel, and where it is not on PATH the
+  # suite runs serially rather than failing. getconf rather than nproc, which
+  # macOS lacks. A suite that cannot share a file across jobs sets
+  # BATS_NO_PARALLELIZE_WITHIN_FILE=true in its setup_file.
+  - repo: local
+    hooks:
+      - id: bats
+        name: bats
+        entry: bash -c 'unset $(git rev-parse --local-env-vars); compgen -G "tests/*.bats" > /dev/null || exit 0; command -v parallel > /dev/null || exec bats tests/; exec bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/'
+        language: system
+        pass_filenames: false
+
+# generated:codespell - Spell checking
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      # Lock files are generated and mostly integrity hashes, so a base64
+      # fragment reads as a typo — a package-lock.json hash can contain a
+      # two-letter sequence codespell corrects. Nobody writes prose in them and
+      # nobody would fix a hit, since the next install would put it back.
+      - id: codespell
+        # `clear,rare` is codespell's own default and is restated because naming
+        # any dictionary replaces the list rather than adding to it.
+        #
+        # Dialect is deliberately not a dictionary here. A commit is the wrong
+        # place to catch a British spelling: by then the word is written, and the
+        # gate's only move is a sweep of text that already exists. The
+        # `british-spelling` rule reports it on the line as it is typed, which
+        # reaches every repo including ones with no pre-commit at all, and
+        # reaches an identifier, which codespell cannot — it matches whole
+        # tokens, so a file holding a compound like `<british-word>_override`
+        # exits 0 either way.
+        #
+        # `-H` because codespell skips any file whose *basename* starts with a
+        # dot and exits 0 rather than saying it read nothing. Without it this
+        # very file sits outside the check it installs, along with every other
+        # dot-named tracked file. A dot-named *directory* was always read, so
+        # `.github/**` never needed it. pre-commit passes tracked paths, so the
+        # flag widens what is read rather than reaching untracked files.
+        #
+        # `--uri-ignore-words-list=*` stops the check inside a URL, for the
+        # reason the go.mod note below gives: an address is a third party's
+        # name, and respelling one breaks the link rather than fixing a typo.
+        # The word is still checked everywhere outside a URL in the same file,
+        # so this narrows the context rather than switching the word off. The
+        # case that forced it is a security scanner's output captured as a test
+        # fixture, where the finding sits in a vendor's advisory URL and no edit
+        # is available to whoever hits it.
+        args: ['-H', '--builtin', 'clear,rare', '--uri-ignore-words-list=*']
+        # The second alternation is sops output. Ciphertext is base64, so it
+        # produces the same false hits a lock file's hashes do. The plain
+        # `secrets.yaml` name is covered alongside the *.enc.env convention.
+        #
+        # `go.mod` sits beside `go.sum` for the same reason one step earlier: it
+        # is mostly module paths, and a path is a third party's name rather than
+        # prose anyone here can correct. A transitive dependency can carry a
+        # module name codespell wants spelled differently, and no edit fixes it —
+        # the next `go mod tidy` writes it straight back. Naming such a module
+        # here would trip this hook on this very file.
+        #
+        # A delimited data file holds values that were captured rather than
+        # written, so a hit in one is the record and correcting it edits the
+        # observation. That holds whatever the values are — a scraped comment
+        # carries whatever its author typed, and a name column carries names
+        # nobody may respell — which is why the class is excluded rather than any
+        # one repo's data. `.tsv` is named beside `.csv` as the same format with
+        # a different delimiter.
+        #
+        # `gotk-components.yaml` is `flux install --export`, under the name
+        # `flux bootstrap` gives it. Its CRD descriptions are Flux's prose, and
+        # the file says DO NOT EDIT, so a hit there is fixed by no edit: the next
+        # export writes it back, as `go mod tidy` writes back a module path.
+        exclude: '(^|/)(.*-lock\.json|.*\.lock|uv\.lock|package-lock\.json|go\.sum|go\.mod|gotk-components\.yaml|secrets?[^/]*\.(ya?ml|env|json)|.*\.enc\.[^/]+|.*\.[ct]sv)$'
+
+# generated:refcheck - Reference checking
+  #
+  # `--moves` is what earns this a place on every commit, and running without
+  # it would be close to running nothing. The whole-tree half — every `source`
+  # and `bash` target — finds nothing on a tree that is already clean, which is
+  # the normal state. The moves half asks the question a rename actually leaves
+  # behind, for each one in the changeset, and that is where the findings are:
+  # call sites and documented commands still naming a path that moved.
+  #
+  # Deliberately no path spelled out above. A comment naming a real old path
+  # is itself a hit for it, in every repo this block is deployed to.
+  #
+  # Generic rather than shell-gated, because a pattern is language-agnostic:
+  # the hits land in Go, Vue and Python repos alike, in YAML and prose as
+  # readily as in scripts. The compiled languages catch their own broken
+  # *imports*, which is a different question from what a doc, a Dockerfile or a
+  # shell wrapper still says.
+  #
+  # No --strict: one advisory warning across every repo, and a warning is
+  # about fragility rather than breakage.
+  - repo: https://github.com/datapointchris/refcheck
+    rev: v2.7.4
+    hooks:
+      - id: refcheck
+        args: [--moves]
+
+# generated:python-format - Python: dependency lock
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.24
+    hooks:
+      - id: uv-lock
+
+  # Python: formatting
+  #
+  # types_or leaves out markdown, which ruff-pre-commit's ruff-format selects.
+  # ruff formats a Python fence in Markdown as source, and a fence here is often
+  # a figure: aligned comments and right-aligned paths, which the reflow
+  # destroys.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-format
+        types_or: [python, pyi, jupyter]
+
+# generated:python-lint - Python: linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+
+  # Python: type checking (uses uv for full dependency visibility)
+  #
+  # --all-extras, because some repos keep mypy itself in a `dev` extra, and a
+  # plain `uv run` installs no extras. It also gives mypy the types an extra
+  # brings.
+  #
+  # mypy runs only where the project declares it. Without the guard, `uv run`
+  # falls back to whatever mypy is on PATH: a workstation's passes the commit,
+  # and a runner has none. The probe exits 3 for an absent mypy, a status
+  # neither uv nor python uses, so a sync that fails still fails the hook.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: >-
+          bash -c 'uv run --all-extras python -c "import importlib.util as u, sys; sys.exit(0 if u.find_spec(sys.argv[1]) else 3)" mypy;
+          status=$?; case $status in
+          0) exec uv run --all-extras mypy . --install-types --non-interactive ;;
+          3) echo "mypy is not a project dependency, so nothing is type-checked" ;;
+          *) exit $status ;;
+          esac'
+        language: system
+        types: [python]
+        pass_filenames: false
+
+# generated:github-actions - GitHub Actions
+  - repo: https://github.com/jdx/jactionlint
+    rev: v1.8.2
+    hooks:
+      - id: jactionlint
+        args: ["-color", "-shellcheck="]

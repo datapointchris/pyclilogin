@@ -1,0 +1,73 @@
+name: "Cross-platform: macOS, Python 3.11, packaging"
+
+# No push trigger: release.yml calls this on every push to main.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # The README claims Linux and macOS support and a 3.11 floor. Both are only
+  # true if they are actually exercised. The keychain diagnosis and the refresh
+  # lock both behave differently on macOS.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+
+      - name: Run the suite
+        run: uv run --python ${{ matrix.python }} --all-extras pytest -q
+
+  # typer is an extra. A stray import of it in a core module would make every
+  # consumer on argparse or click install it, and nothing else in CI would
+  # notice: the dev group installs typer, so the tests would still pass.
+  core-without-typer:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Every core module imports without the typer extra
+        run: |
+          uv venv --python 3.11 /tmp/core
+          VIRTUAL_ENV=/tmp/core uv pip install .
+          VIRTUAL_ENV=/tmp/core uv run --no-project python - <<'EOF'
+          import importlib
+
+          for name in ('deployment', 'errors', 'product', 'provider', 'session', 'store', 'testing'):
+              importlib.import_module(f'pyclilogin.{name}')
+          import pyclilogin
+          print('core imports clean:', pyclilogin.__all__[:3], '...')
+
+          try:
+              importlib.import_module('pyclilogin.typercmd')
+          except ImportError:
+              print('typercmd correctly requires the typer extra')
+          else:
+              raise SystemExit('typercmd imported without typer installed')
+          EOF
+
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      # A package that cannot be built is a package that cannot be released, and
+      # finding that out at tag time means the tag is already permanent.
+      - run: uv build
+
+      - run: uv run --no-project --with twine twine check dist/*

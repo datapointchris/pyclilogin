@@ -1,0 +1,218 @@
+[project]
+name = "pyclilogin"
+dynamic = ["version"]
+description = "Device-grant login for Python CLIs: one config file, a keychain token store with a visible fallback, and a refresh serialized across processes"
+authors = [{ name = "Chris Birch", email = "datapointchris@gmail.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+keywords = ["oauth2", "oidc", "device-authorization-grant", "cli", "keyring", "login"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+
+# 3.11 is what `tomllib` and `enum.StrEnum` require, and every dependency
+# supports it. Raising the floor excludes callers.
+requires-python = ">=3.11"
+
+# Each one is on the credential path, so each earns its place: httpx2 for the
+# five requests the login makes, and keyring for the OS keychain, the Python
+# counterpart of the go-keyring goclilogin uses.
+dependencies = [
+    "httpx2>=2.9.1",
+    "keyring>=25",
+]
+
+[project.optional-dependencies]
+typer = ["typer>=0.15.0"]
+
+[project.urls]
+Repository = "https://github.com/datapointchris/pyclilogin"
+Issues = "https://github.com/datapointchris/pyclilogin/issues"
+Changelog = "https://github.com/datapointchris/pyclilogin/releases"
+
+[dependency-groups]
+dev = [
+    "bandit>=1.7.8",
+    "mypy>=1.10.0",
+    "pre-commit>=4.3.0",
+    "pytest>=8.0.0",
+    "ruff==0.17.1",
+    "typer>=0.15.0",
+]
+
+
+# ---------- Tool Configurations ---------- #
+
+
+[tool.bandit]
+exclude_dirs = [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", "tests"]
+skips = ["B404", "B603"]
+
+
+[tool.codespell]
+skip = '*.lock'
+check-filenames = true
+check-hidden = true
+builtin = "clear,rare"
+uri-ignore-words-list = "*"
+
+
+[tool.mypy]
+pretty = true
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_return_any = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+verbosity_assertions = 2
+
+
+[tool.refurb]
+enable_all = true
+
+
+[tool.ruff]
+line-length = 140
+exclude = [
+    ".git",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".vscode",
+    ".venv",
+    "build",
+    "dist",
+]
+extend-exclude = ["*.md"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+    "ICN",  # flake8-import-conventions
+    # flake8-bandit by rule, never as the family. Most of what the family
+    # reports is a subprocess call made on purpose, and silencing that takes an
+    # ignore list that grows with every project.
+    "S102",  # exec
+    "S113",  # an HTTP request with no timeout, which can hang forever
+    "S301",  # pickle, which runs code from the bytes it loads
+    "S307",  # eval
+    "S324",  # md5 or sha1 used for security
+    "S501",  # TLS certificate verification turned off
+]
+ignore = [
+    "SIM108",  # ternary operator — often less readable
+]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.flake8-import-conventions]
+banned-from = ["datetime", "pyspark.sql.functions", "pyspark.sql.types"]
+
+[tool.ruff.lint.flake8-import-conventions.extend-aliases]
+datetime = "dt"
+sqlalchemy = "sa"
+"pyspark.sql.functions" = "sf"
+"pyspark.sql.types" = "st"
+dataclasses = "dc"
+
+[tool.semantic_release]
+# A feature release on 0.x stays on 0.x. python-semantic-release v10 defaults
+# this to false, which makes the next release of a 0.x project 1.0.0.
+allow_zero_version = true
+# 1.0 is a compatibility promise, so a breaking change on 0.x is a minor bump.
+# Removing this key is how the project reaches 1.0.
+major_on_zero = false
+
+
+# ---------- Build System ---------- #
+
+
+[tool.pyright]
+typeCheckingMode = "standard"
+analyzeUnannotatedFunctions = true  # or pylance stops analyzing in vscode
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+style = "semver"
+
+# A new commit or tag changes the version, so it has to invalidate uv's cache.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
+
+# The published sdist holds the package and its metadata, and none of the
+# repo's tooling or tests. hatchling's default takes the whole tree.
+[tool.hatch.build.targets.sdist]
+only-include = ["src"]
+
+[tool.forge]
+# Keys the shared toolchain standard owns, written by its generator.
+# Dropping one from the template removes it here on the next sync; a key absent
+# from this list belongs to the project and is never touched. Do not hand-edit.
+managed = [
+    ["ruff", "line-length"],
+    ["ruff", "extend-exclude"],
+    ["ruff", "format", "quote-style"],
+    ["ruff", "format", "indent-style"],
+    ["ruff", "format", "skip-magic-trailing-comma"],
+    ["ruff", "format", "line-ending"],
+    ["ruff", "format", "docstring-code-format"],
+    ["ruff", "lint", "select"],
+    ["ruff", "lint", "ignore"],
+    ["ruff", "lint", "isort", "force-single-line"],
+    ["ruff", "lint", "flake8-import-conventions", "banned-from"],
+    ["ruff", "lint", "flake8-import-conventions", "extend-aliases", "datetime"],
+    ["ruff", "lint", "flake8-import-conventions", "extend-aliases", "dataclasses"],
+    ["ruff", "lint", "flake8-import-conventions", "extend-aliases", "sqlalchemy"],
+    ["ruff", "lint", "flake8-import-conventions", "extend-aliases", "pyspark.sql.functions"],
+    ["ruff", "lint", "flake8-import-conventions", "extend-aliases", "pyspark.sql.types"],
+    ["ruff", "lint", "per-file-ignores", "__init__.py"],
+    ["mypy", "pretty"],
+    ["mypy", "ignore_missing_imports"],
+    ["mypy", "check_untyped_defs"],
+    ["mypy", "warn_return_any"],
+    ["pyright", "typeCheckingMode"],
+    ["pyright", "analyzeUnannotatedFunctions"],
+    ["codespell", "check-filenames"],
+    ["codespell", "check-hidden"],
+    ["codespell", "builtin"],
+    ["codespell", "uri-ignore-words-list"],
+    ["pytest", "ini_options", "verbosity_assertions"],
+    ["pytest", "ini_options", "minversion"],
+    ["pytest", "ini_options", "testpaths"],
+]
+# Dependencies held at the version the pre-commit hook runs, in every group
+# and extra that names them, so a local run and CI cannot disagree.
+pinned = ["ruff"]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
