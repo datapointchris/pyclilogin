@@ -138,6 +138,20 @@ class TestTheServiceTokenSource:
         assert source.token().access_token == 'at-300'
         assert provider.asked == 2
 
+    @pytest.mark.parametrize(
+        ('lines', 'secret', 'repair'),
+        [
+            (['token_command = ["broker", "token", "acme"]'], '', 'hands out: `broker token acme`'),
+            (['issuer = "https://auth.example.com"', 'client_id = "acme-svc-scheduler"'], 's3cret', '$ACME_CLIENT_SECRET'),
+            (['issuer = "https://auth.example.com"', 'client_id = "acme-cli-laptop"'], '', 'Run `acme auth login`.'),
+        ],
+    )
+    def test_a_refused_token_is_repaired_where_its_source_says(self, product, write_config, monkeypatch, lines, secret, repair):
+        write_config('\n'.join(['api = "https://acme.example.com"', *lines]) + '\n')
+        if secret:
+            monkeypatch.setenv(product.client_secret_variable, secret)
+        assert repair in product.repair(product.load())
+
     def test_a_refusal_names_the_client_and_the_repair_and_never_suggests_a_login(self, product):
         source = ServiceTokenSource(ScriptedProvider(TokenRefused('invalid_client', 'bad secret')), 'wrong', product.service_repair())
         with pytest.raises(ServiceRefused) as refused:

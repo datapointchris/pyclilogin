@@ -32,6 +32,7 @@ command prints the file and a file holds a credential at whatever mode it has.
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -160,6 +161,18 @@ class Product:
     def service_repair(self):
         """What fixes a refused service client: the file's client id, or the secret."""
         return f'Check client_id in {self.config_path()} and ${self.client_secret_variable}.'
+
+    def repair(self, resolved):
+        """What fixes a token the API refused, for whichever of the three sources sent it.
+
+        A handed token's remedy is whatever handed it, so it names the command. A
+        login offered there is refused, because the file's token_command rules one out.
+        """
+        if resolved.hands_tokens():
+            return f'Check what token_command in {resolved.path} hands out: `{shlex.join(resolved.token_command)}`.'
+        if self.is_service():
+            return self.service_repair()
+        return f'Run `{self.login_command()}`.'
 
     def refuse_two_credentials(self, resolved):
         """Stop a file naming a token_command where the secret also makes this machine a service client."""

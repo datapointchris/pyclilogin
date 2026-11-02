@@ -83,6 +83,7 @@ point catches that one class and prints the message.
 | How do requests get a token | `Product.token_source` | the store, then on a refresh the refresh lock and the discovery document |
 | How does a service with no person authenticate | `ServiceTokenSource` | the token endpoint, with the client's secret |
 | How does a CLI use tokens a broker hands it | `CommandTokenSource` | the stdout of `token_command` from the config file |
+| What does a 401 tell the person to fix | `Product.repair` | the config file's `token_command`, then the secret variable |
 | How do my tests avoid the real keychain | `pyclilogin.testing.MemoryKeyring` | a dict |
 
 ## One config file says where the CLI is pointed, and only login writes it
