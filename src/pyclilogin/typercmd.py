@@ -120,6 +120,12 @@ def open_browser(url, environ=None, platform=sys.platform):
     return True
 
 
+def examples(*rows: tuple[str, str]) -> str:
+    """An epilog of commands beside the situation each answers, one a line, as typer's rich mode prints it."""
+    width = max(len(command) for command, _ in rows)
+    return '\n'.join(['Examples:', *(f'  {command.ljust(width)}  {purpose}' for command, purpose in rows)])
+
+
 def show_prompt_for(client_id):
     def show(prompt):
         write_instructions(client_id, prompt)
@@ -146,6 +152,10 @@ def add_auth_commands(
             f'Where the CLI is pointed comes from one config file. `{cli} {name} status` prints its path and its api, '
             f'issuer and client_id, and `{cli} {name} login <url>` fills in whatever it lacks.'
         ),
+        epilog=examples(
+            (f'{cli} {name} status', 'is this machine logged in, and where is it pointed'),
+            (f'{cli} {name} login', 'log this machine in, once per machine'),
+        ),
         context_settings={'help_option_names': ['-h', '--help']},
     )
 
@@ -157,7 +167,14 @@ def add_auth_commands(
                 f'has no login to {verb}; unset it to {verb} as a person'
             )
 
-    @auth.command('login', rich_help_panel='Changing')
+    @auth.command(
+        'login',
+        rich_help_panel='Changing',
+        epilog=examples(
+            (f'{cli} {name} login', "log in to the config file's api"),
+            (f'{cli} {name} login https://{cli}.example.com', 'the same, on a machine with no config file'),
+        ),
+    )
     def login(
         url: Annotated[
             str,
@@ -198,7 +215,11 @@ def add_auth_commands(
                 raise LoginError(f'logged in as {client}, but the config file was not written: {error}') from error
             note(f'\nLogged in as {client}')
 
-    @auth.command('logout', rich_help_panel='Changing')
+    @auth.command(
+        'logout',
+        rich_help_panel='Changing',
+        epilog=examples((f'{cli} {name} logout', 'forget the token, before handing the machine on')),
+    )
     def logout():
         """Log out, forgetting this machine's token."""
         with reported(product):
@@ -220,13 +241,24 @@ def add_auth_commands(
                 return
             note(f'Logged out ({client}).')
 
-    @auth.command('token', rich_help_panel='Reading')
+    @auth.command(
+        'token',
+        rich_help_panel='Reading',
+        epilog=examples((f'TOKEN=$({cli} {name} token)', 'a bearer token for calling the API with curl')),
+    )
     def token():
         """Print an access token for calling the API directly. Exits 1 when logged out."""
         with reported(product):
             print(product.token_source(product.load(api_flag())).token().access_token)
 
-    @auth.command('status', rich_help_panel='Reading')
+    @auth.command(
+        'status',
+        rich_help_panel='Reading',
+        epilog=examples(
+            (f'{cli} {name} status', 'is this machine logged in, and where is it pointed'),
+            (f'{cli} {name} status --json', 'the same, for a script'),
+        ),
+    )
     def status(as_json: JsonFlag = False):
         """Show where the CLI is pointed and whether it is logged in.
 
