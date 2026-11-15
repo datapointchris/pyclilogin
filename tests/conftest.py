@@ -57,7 +57,7 @@ def write_config():
 @pytest.fixture
 def metadata(monkeypatch):
     """Every API answering its RFC 9728 metadata from `documents`, keyed by the URL asked; anything else is 404."""
-    documents = {}
+    documents: dict[str, dict] = {}
     asked = []
 
     def answer(request):

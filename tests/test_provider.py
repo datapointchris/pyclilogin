@@ -19,6 +19,7 @@ from pyclilogin import ProviderUnreachable
 from pyclilogin import Token
 from pyclilogin import TokenRefused
 from pyclilogin.provider import DEVICE_CODE_GRANT
+from pyclilogin.provider import DevicePrompt
 
 ISSUER = 'https://auth.example.test'
 CLIENT = 'acme-cli-test'
@@ -99,7 +100,7 @@ class TestTheDeviceGrant:
         assert played.token_requests[0] == {'grant_type': DEVICE_CODE_GRANT, 'device_code': 'the-device-code', 'client_id': CLIENT}
 
     def test_the_prompt_carries_the_url_with_the_code_in_it(self):
-        prompts = []
+        prompts: list[DevicePrompt] = []
         provider_for(PlayedProvider([(200, ISSUED)])).login(prompts.append)
         assert prompts[0].browser_url().endswith('user_code=ABCD-EFGH')
         assert prompts[0].user_code == 'ABCD-EFGH'

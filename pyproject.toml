@@ -69,7 +69,7 @@ uri-ignore-words-list = "*"
 [tool.mypy]
 pretty = true
 ignore_missing_imports = true
-check_untyped_defs = false
+check_untyped_defs = true
 warn_return_any = false
 
 [tool.pytest.ini_options]

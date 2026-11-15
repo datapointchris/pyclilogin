@@ -153,10 +153,8 @@ class TestSave:
         resolved.save()
         assert resolved.path.read_text() == CONFIGURED
         assert resolved.path.stat().st_mode & 0o777 == 0o644
-        assert load() == Deployment(
-            resolved.path,
-            *(Setting(value, Source.FILE, str(resolved.path)) for value in (API, ISSUER, 'acme-cli-desk')),
-        )
+        api, issuer, client_id = (Setting(value, Source.FILE, str(resolved.path)) for value in (API, ISSUER, 'acme-cli-desk'))
+        assert load() == Deployment(resolved.path, api, issuer, client_id)
 
     def test_only_what_the_file_lacked_is_written_and_the_rest_is_kept(self, write_config, metadata):
         path = write_config(f'# mine\nissuer = "{ISSUER}"\n')
