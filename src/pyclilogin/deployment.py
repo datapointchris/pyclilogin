@@ -55,6 +55,10 @@ from .provider import http_client
 
 KEYS = ('api', 'issuer', 'client_id')
 
+# The command group a CLI's login, logout, token and status live under, unless
+# its `Product` names another.
+AUTH_GROUP = 'auth'
+
 # The argv a broker's token command runs, set only in the file. A CLI whose file
 # names one is handed its tokens and never logs in, so it needs only `api`.
 TOKEN_COMMAND = 'token_command'
@@ -179,12 +183,19 @@ def client_id_for(product):
     return f'{product}-cli-{host}' if host else f'{product}-cli'
 
 
-def load_deployment(product, api='', *, user_agent=USER_AGENT, product_keys=None):
+def login_command_for(product):
+    """`<product> auth login`, the command filling a config file when nothing names another."""
+    return f'{product} {AUTH_GROUP} login'
+
+
+def load_deployment(product, api='', *, user_agent=USER_AGENT, product_keys=None, login_command=''):
     """The deployment every command talks to. `api` is the `--api` flag's value, and outranks the file's.
 
     `product_keys` is None to leave every key outside the login's to the
-    product, or the product's own keys, to refuse any other.
+    product, or the product's own keys, to refuse any other. `login_command`
+    is what a refusal tells the user to run, `<product> auth login` where empty.
     """
+    login_command = login_command or login_command_for(product)
     path = config_path(product)
     file = read_config_file(path, product_keys)
     deployment = Deployment(
@@ -196,7 +207,7 @@ def load_deployment(product, api='', *, user_agent=USER_AGENT, product_keys=None
     )
     missing = deployment.missing()
     if missing:
-        raise NotConfigured(f'not configured: {path} sets no {" or ".join(missing)}; run `{product} auth login <url>`', deployment)
+        raise NotConfigured(f'not configured: {path} sets no {" or ".join(missing)}; run `{login_command} <url>`', deployment)
 
     from_command_line = deployment.api.source == Source.COMMAND_LINE
     resource = normalize_api(deployment.api.value, None if from_command_line else path)
@@ -208,7 +219,7 @@ def load_deployment(product, api='', *, user_agent=USER_AGENT, product_keys=None
     return deployment
 
 
-def deployment_for_login(product, api='', client_id='', *, user_agent=USER_AGENT, product_keys=None):
+def deployment_for_login(product, api='', client_id='', *, user_agent=USER_AGENT, product_keys=None, login_command=''):
     """The deployment a login authenticates against, filling in only what the file lacks.
 
     A value typed on the command line that differs from the file's is refused,
@@ -218,6 +229,7 @@ def deployment_for_login(product, api='', client_id='', *, user_agent=USER_AGENT
     nothing.
     Print the result before the device grant starts, so the login server is on
     screen before anything is sent to it, and `save` it once the grant succeeds.
+    `login_command` is what a refusal tells the user to run, as `load_deployment` says.
     """
     path = config_path(product)
     file = read_config_file(path, product_keys)
@@ -232,7 +244,9 @@ def deployment_for_login(product, api='', client_id='', *, user_agent=USER_AGENT
     elif api:
         api_setting = Setting(normalize_api(api), Source.COMMAND_LINE)
     else:
-        raise NotConfigured(f'not configured: {path} sets no api; run `{product} auth login <url>`', Deployment(path))
+        raise NotConfigured(
+            f'not configured: {path} sets no api; run `{login_command or login_command_for(product)} <url>`', Deployment(path)
+        )
 
     if file.get('issuer'):
         issuer = from_file(file, 'issuer', path)

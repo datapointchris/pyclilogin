@@ -139,10 +139,14 @@ def add_auth_commands(
     product: Product,
     *,
     api_flag: Callable[[], str] = lambda: '',
-    name: str = 'auth',
+    name: str = '',
     rich_help_panel: str | None = None,
 ) -> typer.Typer:
-    """Register `<name> auth login|logout|token|status` on an existing typer app, and return the group."""
+    """Register `<name> auth login|logout|token|status` on an existing typer app, and return the group.
+
+    The group is named `name`, or the product's `auth_group` where empty.
+    """
+    name = name or product.auth_group
     cli = product.name
     auth = typer.Typer(
         name=name,

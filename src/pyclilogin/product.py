@@ -67,6 +67,10 @@ class Product:
     and the login's is refused. `config_example_command` is a command printing
     an annotated config file. A service client cannot log in to fill the file,
     so its refusal names that command where one is set.
+
+    `auth_group` names the command group login, logout, token and status live
+    under. `add_auth_commands` registers the group by it, and every refusal
+    naming the login command reads it through `login_command`.
     """
 
     name: str
@@ -79,6 +83,7 @@ class Product:
     config_example_command: str = ''
     keyring_backend: Any = keyring
     platform: str = sys.platform
+    auth_group: str = deployment.AUTH_GROUP
 
     @property
     def client_secret_variable(self):
@@ -101,7 +106,8 @@ class Product:
         return base / self.name
 
     def login_command(self):
-        return f'{self.name} auth login'
+        """`<name> <auth_group> login`, the command every refusal needing a login names."""
+        return f'{self.name} {self.auth_group} login'
 
     def client_secret(self):
         """A service client's secret, from the environment alone, or '' where none is set."""
@@ -122,7 +128,9 @@ class Product:
         `client_id` as the client its secret belongs to.
         """
         try:
-            return deployment.load_deployment(self.name, api, user_agent=self.user_agent, product_keys=self.product_keys)
+            return deployment.load_deployment(
+                self.name, api, user_agent=self.user_agent, product_keys=self.product_keys, login_command=self.login_command()
+            )
         except NotConfigured as unconfigured:
             if not self.is_service():
                 raise
@@ -138,7 +146,9 @@ class Product:
 
     def for_login(self, api='', client_id=''):
         """What `<name> auth login` logs in to: the file's values, with what it lacks filled in."""
-        return deployment.deployment_for_login(self.name, api, client_id, user_agent=self.user_agent, product_keys=self.product_keys)
+        return deployment.deployment_for_login(
+            self.name, api, client_id, user_agent=self.user_agent, product_keys=self.product_keys, login_command=self.login_command()
+        )
 
     def store(self):
         return TokenStore(
