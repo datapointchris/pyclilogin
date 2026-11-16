@@ -291,15 +291,22 @@ def add_auth_commands(
     return auth
 
 
-def person_status(product, as_json, resolved, unconfigured):
-    """A person's login, from the config file and the store alone. Exits 1 when either lacks something."""
-    report = {
-        'logged_in': False,
-        'configured': unconfigured is None,
+def pointed_at(resolved):
+    """Where the CLI is pointed, the fields every status report's JSON opens with."""
+    return {
         'config_file': str(resolved.path),
         'api': resolved.api.value,
         'client_id': resolved.client_id.value,
         'issuer': resolved.issuer.value,
+    }
+
+
+def person_status(product, as_json, resolved, unconfigured):
+    """A person's login, from the config file and the store alone. Exits 1 when either lacks something."""
+    report = {
+        **pointed_at(resolved),
+        'logged_in': False,
+        'configured': unconfigured is None,
         'expires_at': None,
         'expired': False,
         'backend': None,
@@ -347,11 +354,8 @@ def service_status(product, as_json, resolved):
     """Whether the provider accepts the service client's secret. Exits 1 when it does not."""
     provider = product.provider(resolved, scopes=())
     report = {
+        **pointed_at(resolved),
         'service': True,
-        'config_file': str(resolved.path),
-        'api': resolved.api.value,
-        'client_id': provider.client_id,
-        'issuer': provider.issuer,
         'secret_from': f'${product.client_secret_variable}',
         'accepted': False,
         'answer': '',
@@ -380,10 +384,8 @@ def service_status(product, as_json, resolved):
 def handed_status(product, as_json, resolved):
     """Whether the file's token_command hands a token now. Exits 1 when it does not."""
     report = {
+        **pointed_at(resolved),
         'type': 'external_account',
-        'config_file': str(resolved.path),
-        'api': resolved.api.value,
-        'client_id': resolved.client_id.value,
         'token_command': list(resolved.token_command),
         'handed': False,
         'expires_at': None,
