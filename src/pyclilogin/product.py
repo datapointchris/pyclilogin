@@ -31,6 +31,7 @@ command prints the file and a file holds a credential at whatever mode it has.
 
 from __future__ import annotations
 
+import enum
 import os
 import shlex
 import sys
@@ -51,6 +52,14 @@ from .session import CommandTokenSource
 from .session import ServiceTokenSource
 from .session import TokenSource
 from .store import TokenStore
+
+
+class Credential(enum.StrEnum):
+    """Which of the three ways a machine gets its token applies, as `Product.credential` decides it."""
+
+    COMMAND = 'command'
+    SERVICE = 'service'
+    PERSON = 'person'
 
 
 @dataclass(frozen=True)
@@ -178,19 +187,30 @@ class Product:
         A handed token's remedy is whatever handed it, so it names the command. A
         login offered there is refused, because the file's token_command rules one out.
         """
-        if resolved.hands_tokens():
-            return f'Check what token_command in {resolved.path} hands out: `{shlex.join(resolved.token_command)}`.'
-        if self.is_service():
-            return self.service_repair()
+        match self.credential(resolved):
+            case Credential.COMMAND:
+                return f'Check what token_command in {resolved.path} hands out: `{shlex.join(resolved.token_command)}`.'
+            case Credential.SERVICE:
+                return self.service_repair()
         return f'Run `{self.login_command()}`.'
 
-    def refuse_two_credentials(self, resolved):
-        """Stop a file naming a token_command where the secret also makes this machine a service client."""
-        if resolved.hands_tokens() and self.is_service():
-            raise ConfigRefused(
-                f'{resolved.path} sets token_command and ${self.client_secret_variable} is set, '
-                f'so {self.name} has two credentials; keep one'
-            )
+    def credential(self, resolved):
+        """Which of the three ways this machine gets its token applies, for every command to act on.
+
+        The file's token_command comes first, then the service secret, then a
+        person's login. A file naming a token_command where the secret is also
+        set is refused, because the machine then has two credentials.
+        """
+        if resolved.hands_tokens():
+            if self.is_service():
+                raise ConfigRefused(
+                    f'{resolved.path} sets token_command and ${self.client_secret_variable} is set, '
+                    f'so {self.name} has two credentials; keep one'
+                )
+            return Credential.COMMAND
+        if self.is_service():
+            return Credential.SERVICE
+        return Credential.PERSON
 
     def token_source(self, resolved, service_scopes=()):
         """A source for this machine's token, or `NotLoggedIn` when it holds none.
@@ -199,11 +219,11 @@ class Product:
         carries the scopes it was granted at login, so it ignores them.
         """
         client_id = resolved.client_id.value
-        if resolved.hands_tokens():
-            self.refuse_two_credentials(resolved)
-            return CommandTokenSource(resolved.token_command, resolved.path)
-        if not self.is_service():
-            return TokenSource(self.provider(resolved), self.store(), client_id, self.resolved_state_dir())
+        match self.credential(resolved):
+            case Credential.COMMAND:
+                return CommandTokenSource(resolved.token_command, resolved.path)
+            case Credential.PERSON:
+                return TokenSource(self.provider(resolved), self.store(), client_id, self.resolved_state_dir())
         if not service_scopes:
             raise ServiceUnscoped(
                 f'${self.client_secret_variable} is set, so {self.name} authenticates as service client {client_id}. '

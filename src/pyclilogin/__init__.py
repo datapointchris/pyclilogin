@@ -48,6 +48,7 @@ from pyclilogin.errors import ServiceUnscoped
 from pyclilogin.errors import StoreFailed
 from pyclilogin.errors import TokenCommandFailed
 from pyclilogin.errors import TokenRefused
+from pyclilogin.product import Credential
 from pyclilogin.product import Product
 from pyclilogin.provider import DEFAULT_SCOPES
 from pyclilogin.provider import DevicePrompt
@@ -64,6 +65,7 @@ __all__ = [
     'Backend',
     'CommandTokenSource',
     'ConfigRefused',
+    'Credential',
     'Deployment',
     'DevicePrompt',
     'KeyringRefused',

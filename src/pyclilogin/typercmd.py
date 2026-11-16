@@ -52,6 +52,7 @@ from .errors import NotConfigured
 from .errors import NotLoggedIn
 from .errors import ProviderUnreachable
 from .errors import TokenRefused
+from .product import Credential
 from .product import Product
 from .provider import DevicePrompt
 from .store import Backend
@@ -227,7 +228,6 @@ def add_auth_commands(
     def logout():
         """Log out, forgetting this machine's token."""
         with reported(product):
-            refuse_as_service('log out')
             # Only the client id finds the token, so a file lacking the other two keys
             # still logs out. A file naming no client falls back to the hostname's, the
             # client login derives, so its token cannot outlive the logout.
@@ -235,8 +235,11 @@ def add_auth_commands(
                 loaded = product.load(api_flag())
             except NotConfigured as unconfigured:
                 loaded = unconfigured.deployment
-            if loaded.hands_tokens():
-                raise LoginError(f'{loaded.path} sets token_command, so {cli} is handed its tokens and stores none to remove')
+            match product.credential(loaded):
+                case Credential.SERVICE:
+                    refuse_as_service('log out')
+                case Credential.COMMAND:
+                    raise LoginError(f'{loaded.path} sets token_command, so {cli} is handed its tokens and stores none to remove')
             client = loaded.client_id.value or product.default_client_id()
             try:
                 product.store().delete(client)
@@ -270,17 +273,19 @@ def add_auth_commands(
         file's path. Exits 1 when the file lacks a value or no token is stored.
         """
         with reported(product):
-            if product.is_service():
-                service_status(product, as_json, product.load(api_flag()))
-                return
             try:
                 resolved, unconfigured = product.load(api_flag()), None
             except NotConfigured as error:
                 resolved, unconfigured = error.deployment, error
-            if unconfigured is None and resolved.hands_tokens():
-                handed_status(product, as_json, resolved)
-                return
-            person_status(product, as_json, resolved, unconfigured)
+            match product.credential(resolved):
+                case Credential.SERVICE:
+                    if unconfigured is not None:
+                        raise unconfigured
+                    service_status(product, as_json, resolved)
+                case Credential.COMMAND if unconfigured is None:
+                    handed_status(product, as_json, resolved)
+                case _:
+                    person_status(product, as_json, resolved, unconfigured)
 
     app.add_typer(auth, name=name, rich_help_panel=rich_help_panel)
     return auth

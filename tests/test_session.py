@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from conftest import NoKeyring
 
+from pyclilogin import ConfigRefused
 from pyclilogin import ServiceRefused
 from pyclilogin import ServiceTokenSource
 from pyclilogin import Token
@@ -151,6 +152,12 @@ class TestTheServiceTokenSource:
         if secret:
             monkeypatch.setenv(product.client_secret_variable, secret)
         assert repair in product.repair(product.load())
+
+    def test_a_token_command_beside_the_secret_is_two_credentials_for_every_command(self, product, write_config, monkeypatch):
+        write_config('api = "https://acme.example.com"\ntoken_command = ["broker", "token", "acme"]\n')
+        monkeypatch.setenv(product.client_secret_variable, 's3cret')
+        with pytest.raises(ConfigRefused):
+            product.credential(product.load())
 
     def test_a_refusal_names_the_client_and_the_repair_and_never_suggests_a_login(self, product):
         source = ServiceTokenSource(ScriptedProvider(TokenRefused('invalid_client', 'bad secret')), 'wrong', product.service_repair())
