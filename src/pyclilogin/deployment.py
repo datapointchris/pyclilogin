@@ -50,8 +50,8 @@ import httpx2
 from .errors import ConfigRefused
 from .errors import MetadataRefused
 from .errors import NotConfigured
-from .provider import TIMEOUT_SECONDS
 from .provider import USER_AGENT
+from .provider import http_client
 
 KEYS = ('api', 'issuer', 'client_id')
 
@@ -358,7 +358,7 @@ def read_protected_resource_metadata(resource, user_agent=USER_AGENT):
     """
     url = protected_resource_metadata_url(resource)
     try:
-        with httpx2.Client(timeout=TIMEOUT_SECONDS, headers={'User-Agent': user_agent}, follow_redirects=False) as client:
+        with http_client(user_agent) as client:
             response = client.get(url)
     except httpx2.HTTPError as error:
         raise MetadataRefused(f'cannot reach the API at {url}: {error}') from error

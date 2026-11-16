@@ -48,6 +48,15 @@ EARLY_EXPIRY = dt.timedelta(seconds=10)
 USER_AGENT = 'pyclilogin (+https://github.com/datapointchris/pyclilogin)'
 
 
+def http_client(user_agent=USER_AGENT):
+    """The HTTP client every request this package sends goes through.
+
+    The timeout, the user agent and the refusal to follow a redirect are set
+    here once, so no call site sets them.
+    """
+    return httpx2.Client(timeout=TIMEOUT_SECONDS, headers={'User-Agent': user_agent}, follow_redirects=False)
+
+
 @dataclass(frozen=True)
 class Token:
     """One grant's tokens. `expiry` is None where the provider sent no `expires_in`."""
@@ -133,7 +142,7 @@ class Provider:
 
     def _http(self):
         if self.client is None:
-            self.client = httpx2.Client(timeout=TIMEOUT_SECONDS, headers={'User-Agent': self.user_agent}, follow_redirects=False)
+            self.client = http_client(self.user_agent)
         return self.client
 
     def endpoints(self):

@@ -50,6 +50,10 @@ behavior changed here is checked against goclilogin first.
   through a symlink.
 - **A token goes only to an API naming the file's issuer.** An `--api`
   differing from the file's is checked against its RFC 9728 metadata first.
+- **Every HTTP request goes through `provider.http_client`.** It sets the
+  timeout, the user agent and the refusal to follow a redirect once, so no
+  call site builds an `httpx2.Client` of its own. A `Provider` given a client
+  uses that one instead, which is how a test hands it a mock transport.
 - **The core reads one environment variable, the service secret, and only in
   `product.py`.** `ServiceTokenSource` takes the secret as an argument.
 - **typer stays confined to `typercmd.py`,** installed through the `typer`
