@@ -114,8 +114,10 @@ Login never writes through a symlink. A link means a config manager owns the
 file, and its source may be every machine's. A client id written there would
 become every machine's.
 
-A key outside these three belongs to the product, as in goclilogin. A product
-whose file holds nothing else passes `product_keys=frozenset()`, and a renamed
+The library also owns `token_command`, described below, and refuses one that is
+not a non-empty argv list. Any other key belongs to the product, as in
+goclilogin. A product whose file holds nothing else passes
+`product_keys=frozenset()`, and a renamed
 key such as `api_base` is then refused rather than read as a file with no
 `api`.
 
