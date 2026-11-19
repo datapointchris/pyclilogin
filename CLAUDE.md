@@ -54,8 +54,10 @@ behavior changed here is checked against goclilogin first.
   timeout, the user agent and the refusal to follow a redirect once, so no
   call site builds an `httpx2.Client` of its own. A `Provider` given a client
   uses that one instead, which is how a test hands it a mock transport.
-- **The core reads one environment variable, the service secret, and only in
-  `product.py`.** `ServiceTokenSource` takes the secret as an argument.
+- **The core reads three environment variables, and none of them names an
+  installation.** `deployment.py` reads `XDG_CONFIG_HOME` to find the config
+  file. `product.py` reads `XDG_STATE_HOME` for the state directory, and the
+  service secret. `ServiceTokenSource` takes the secret as an argument.
 - **typer stays confined to `typercmd.py`,** installed through the `typer`
   extra, so a CLI on argparse or click never installs it. CI imports every
   other module with no extras installed.
