@@ -14,6 +14,7 @@ anyone to log in again.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses as dc
 import datetime as dt
 import time
@@ -156,13 +157,16 @@ class Provider:
             raise ProviderUnreachable(f'cannot reach the identity provider at {url}: {error}') from error
         if response.status_code != 200:
             raise ProviderUnreachable(f'identity provider discovery at {url} answered HTTP {response.status_code}')
-        document = response.json()
+        document = answer(response, url)
         if document.get('issuer') != self.issuer.rstrip('/'):
             raise ProviderUnreachable(f'{url} describes {document.get("issuer")!r}, not {self.issuer!r}')
         device = document.get('device_authorization_endpoint')
         if not device:
             raise ProviderUnreachable(f'{self.issuer} advertises no device_authorization_endpoint')
-        self._endpoints = Endpoints(issuer=document['issuer'], token=document['token_endpoint'], device_authorization=device)
+        token = document.get('token_endpoint')
+        if not token:
+            raise ProviderUnreachable(f'{self.issuer} advertises no token_endpoint')
+        self._endpoints = Endpoints(issuer=document['issuer'], token=token, device_authorization=device)
         return self._endpoints
 
     def _post(self, url, form):
@@ -177,25 +181,27 @@ class Provider:
         response = self._post(endpoints.device_authorization, {'scope': ' '.join(self.scopes)})
         if response.status_code != 200:
             raise refusal(response)
-        grant = response.json()
-        show(
-            DevicePrompt(
+        grant = answer(response, endpoints.device_authorization)
+        with reading_answer_from(endpoints.device_authorization):
+            prompt = DevicePrompt(
                 user_code=grant['user_code'],
                 verification_uri=grant['verification_uri'],
                 verification_uri_complete=grant.get('verification_uri_complete', ''),
             )
-        )
-        return self._poll(endpoints.token, grant)
+            device_code = grant['device_code']
+            lifetime = int(grant['expires_in'])
+            interval = int(grant.get('interval') or DEFAULT_POLL_SECONDS)
+        show(prompt)
+        return self._poll(endpoints.token, device_code, lifetime, interval)
 
-    def _poll(self, token_url, grant):
-        interval = int(grant.get('interval') or DEFAULT_POLL_SECONDS)
-        deadline = self.clock() + int(grant['expires_in'])
-        form = {'grant_type': DEVICE_CODE_GRANT, 'device_code': grant['device_code']}
+    def _poll(self, token_url, device_code, lifetime, interval):
+        deadline = self.clock() + lifetime
+        form = {'grant_type': DEVICE_CODE_GRANT, 'device_code': device_code}
         while self.clock() < deadline:
             self.sleep(interval)
             response = self._post(token_url, form)
             if response.status_code == 200:
-                return token_from_response(response.json())
+                return token_from_response(answer(response, token_url), token_url)
             error = error_code(response)
             if error == 'authorization_pending':
                 continue
@@ -226,7 +232,7 @@ class Provider:
             raise ProviderUnreachable(f'cannot reach {url}: {error}') from error
         if response.status_code != 200:
             raise refusal(response)
-        return token_from_response(response.json())
+        return token_from_response(answer(response, url), url)
 
     def refresh(self, token):
         """Exchange the refresh token for a new pair.
@@ -236,32 +242,62 @@ class Provider:
         """
         if not token.refresh_token:
             raise TokenRefused('no_refresh_token', 'the stored grant holds no refresh token')
-        response = self._post(self.endpoints().token, {'grant_type': 'refresh_token', 'refresh_token': token.refresh_token})
+        url = self.endpoints().token
+        response = self._post(url, {'grant_type': 'refresh_token', 'refresh_token': token.refresh_token})
         if response.status_code != 200:
             raise refusal(response)
-        refreshed = token_from_response(response.json())
+        refreshed = token_from_response(answer(response, url), url)
         if not refreshed.refresh_token:
             refreshed = dc.replace(refreshed, refresh_token=token.refresh_token)
         return refreshed
 
 
-def token_from_response(body, now=None):
+def token_from_response(body, url, now=None):
+    """The token in `url`'s answer, or `ProviderUnreachable` where it carries none."""
     now = now or dt.datetime.now(dt.UTC)
-    expires_in = body.get('expires_in')
-    return Token(
-        access_token=body['access_token'],
-        refresh_token=body.get('refresh_token', ''),
-        token_type=body.get('token_type', 'Bearer'),
-        expiry=now + dt.timedelta(seconds=int(expires_in)) if expires_in else None,
-        id_token=body.get('id_token', ''),
-    )
+    with reading_answer_from(url):
+        expires_in = body.get('expires_in')
+        return Token(
+            access_token=body['access_token'],
+            refresh_token=body.get('refresh_token', ''),
+            token_type=body.get('token_type', 'Bearer'),
+            expiry=now + dt.timedelta(seconds=int(expires_in)) if expires_in else None,
+            id_token=body.get('id_token', ''),
+        )
+
+
+def answer(response, url):
+    """`url`'s answer as a JSON object, or `ProviderUnreachable`.
+
+    A proxy in front of a provider can answer 200 with an HTML page. That
+    proves nothing about the grant, so it is an outage rather than a refusal.
+    """
+    try:
+        body = response.json()
+    except ValueError as error:
+        raise ProviderUnreachable(f'{url} answered with a body that is not JSON: {error}') from error
+    if not isinstance(body, dict):
+        raise ProviderUnreachable(f'{url} answered with JSON that is not an object')
+    return body
+
+
+@contextlib.contextmanager
+def reading_answer_from(url):
+    """Turn a field missing from `url`'s answer, or one that cannot be read, into `ProviderUnreachable`."""
+    try:
+        yield
+    except KeyError as error:
+        raise ProviderUnreachable(f'{url} answered without {error.args[0]}') from error
+    except (TypeError, ValueError) as error:
+        raise ProviderUnreachable(f'{url} answered with a value that cannot be read: {error}') from error
 
 
 def error_code(response):
     try:
-        return response.json().get('error', '')
+        body = response.json()
     except ValueError:
         return ''
+    return body.get('error', '') if isinstance(body, dict) else ''
 
 
 def refusal(response):
@@ -270,6 +306,8 @@ def refusal(response):
         try:
             body = response.json()
         except ValueError:
+            body = None
+        if not isinstance(body, dict):
             body = {}
         return TokenRefused(body.get('error') or f'HTTP {response.status_code}', body.get('error_description', ''))
     return ProviderUnreachable(f'the identity provider answered HTTP {response.status_code}')

@@ -116,7 +116,7 @@ class FileStore:
         if self.path is None:
             return None
         stored = load(self.path).get(client_id)
-        return Token.from_json(stored) if stored else None
+        return stored_token(stored, f'{self.path} under {client_id}') if stored else None
 
     def set(self, client_id, token):
         if self.path is None:
@@ -145,11 +145,24 @@ def load(path):
     except OSError as error:
         raise StoreFailed(f'cannot read {path}: {error}') from error
     try:
-        return json.loads(text)
+        tokens = json.loads(text)
     except json.JSONDecodeError as error:
         # Read as empty, a corrupt file reports "not logged in" for a token
         # sitting right there, and the next login overwrites it.
         raise StoreFailed(f'{path} is not readable as JSON: {error}') from error
+    if not isinstance(tokens, dict):
+        raise StoreFailed(f'{path} is not a JSON object of tokens by client id')
+    return tokens
+
+
+def stored_token(data, where):
+    """`data` as a `Token`, or `StoreFailed` naming `where` it was kept."""
+    if not isinstance(data, dict):
+        raise StoreFailed(f'{where} holds a token that is not a JSON object')
+    try:
+        return Token.from_json(data)
+    except (TypeError, ValueError) as error:
+        raise StoreFailed(f'{where} holds a token that cannot be read: {error}') from error
 
 
 def write(path, tokens):
@@ -214,7 +227,12 @@ class TokenStore:
         except keyring.errors.KeyringError as error:
             raw, keyring_error = None, error
         if raw:
-            return Token.from_json(json.loads(raw)), Backend.KEYRING
+            where = f'the keyring entry {self.service} under {client_id}'
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as error:
+                raise StoreFailed(f'{where} is not readable as JSON: {error}') from error
+            return stored_token(data, where), Backend.KEYRING
         stored = self.file.get(client_id)
         if stored is not None:
             return stored, Backend.FILE
